@@ -5,6 +5,10 @@ on:
     types: [opened, synchronize, reopened, labeled, unlabeled]
     branches: [main]
 
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 env:
   PACKAGE_NAME: '@ypankratovich/ts-sum-inn'
 
@@ -50,87 +54,91 @@ jobs:
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
+    # Job-level condition: always runs as a job, but skips steps if no label
+    # This ensures required check always reports status
     steps:
       - name: Check for verify label
         id: check-label
         run: |
-          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'verify') }}" == "true" ]]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_run=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Skipping E2E - no 'verify' label" >> $GITHUB_STEP_SUMMARY
+          HAS_LABEL="${{ contains(github.event.pull_request.labels.*.name, 'verify') }}"
+          echo "has_label=$HAS_LABEL" >> $GITHUB_OUTPUT
+          if [[ "$HAS_LABEL" != "true" ]]; then
+            echo "## ⏭️ E2E Skipped" >> $GITHUB_STEP_SUMMARY
+            echo "Add 'verify' label to run E2E tests" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Checkout
-        if: steps.check-label.outputs.should_run == 'true'
+        if: steps.check-label.outputs.has_label == 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js
-        if: steps.check-label.outputs.should_run == 'true'
+        if: steps.check-label.outputs.has_label == 'true'
         uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/setup-node-npm@v1
 
       - name: Install dependencies
-        if: steps.check-label.outputs.should_run == 'true'
+        if: steps.check-label.outputs.has_label == 'true'
         uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/npm-ci@v1
 
       - name: Run E2E tests
-        if: steps.check-label.outputs.should_run == 'true'
+        if: steps.check-label.outputs.has_label == 'true'
         run: npm run test:e2e
 
       - name: E2E Summary
-        if: steps.check-label.outputs.should_run == 'true'
+        if: steps.check-label.outputs.has_label == 'true'
         run: |
           echo "## E2E Tests Passed ✅" >> $GITHUB_STEP_SUMMARY
 
   release-candidate:
     name: Release Candidate
     runs-on: ubuntu-latest
+    # Job-level condition: always runs as a job, but skips steps if no label
+    # This ensures required check always reports status
     steps:
       - name: Check for publish label
         id: check-label
         run: |
-          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'publish') }}" == "true" ]]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_run=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Skipping Release Candidate - no 'publish' label" >> $GITHUB_STEP_SUMMARY
+          HAS_LABEL="${{ contains(github.event.pull_request.labels.*.name, 'publish') }}"
+          echo "has_label=$HAS_LABEL" >> $GITHUB_OUTPUT
+          if [[ "$HAS_LABEL" != "true" ]]; then
+            echo "## ⏭️ Release Candidate Skipped" >> $GITHUB_STEP_SUMMARY
+            echo "Add 'publish' label to create release candidate" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Checkout
-        if: steps.check-label.outputs.should_run == 'true'
+        if: steps.check-label.outputs.has_label == 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js
-        if: steps.check-label.outputs.should_run == 'true'
+        if: steps.check-label.outputs.has_label == 'true'
         uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/setup-node-npm@v1
 
       - name: Install dependencies
-        if: steps.check-label.outputs.should_run == 'true'
+        if: steps.check-label.outputs.has_label == 'true'
         uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/npm-ci@v1
 
       - name: Get version
-        if: steps.check-label.outputs.should_run == 'true'
+        if: steps.check-label.outputs.has_label == 'true'
         id: version
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Check version not in registry
-        if: steps.check-label.outputs.should_run == 'true'
+        if: steps.check-label.outputs.has_label == 'true'
         uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/npm-version-exists@v1
         with:
           package-name: ${{ env.PACKAGE_NAME }}
           version: ${{ steps.version.outputs.version }}
 
       - name: Build dev release candidate
-        if: steps.check-label.outputs.should_run == 'true'
+        if: steps.check-label.outputs.has_label == 'true'
         uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/npm-pack-dev@v1
         id: pack
         with:
           sha: ${{ github.event.pull_request.head.sha }}
 
       - name: Upload artifact
-        if: steps.check-label.outputs.should_run == 'true'
+        if: steps.check-label.outputs.has_label == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: release-candidate-${{ steps.pack.outputs.dev-version }}
@@ -138,7 +146,7 @@ jobs:
           retention-days: 7
 
       - name: RC Summary
-        if: steps.check-label.outputs.should_run == 'true'
+        if: steps.check-label.outputs.has_label == 'true'
         run: |
           echo "## Release Candidate Created ✅" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
