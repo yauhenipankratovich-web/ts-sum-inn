@@ -1,0 +1,100 @@
+name: Bootstrap Repository
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup:
+    name: Configure Repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure repository settings
+        env:
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+        run: |
+          echo "Configuring repository settings..."
+
+          # Disable merge commits, enable squash and rebase
+          gh api \
+            --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/${{ github.repository }} \
+            -f allow_merge_commit=false \
+            -f allow_squash_merge=true \
+            -f allow_rebase_merge=true \
+            -f delete_branch_on_merge=true
+
+          echo "✅ Repository settings configured"
+
+      - name: Create labels
+        env:
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+        run: |
+          echo "Creating labels..."
+
+          # Create 'verify' label
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/${{ github.repository }}/labels \
+            -f name="verify" \
+            -f description="Trigger E2E/integration tests" \
+            -f color="0E8A16" || echo "Label 'verify' may already exist"
+
+          # Create 'publish' label
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/${{ github.repository }}/labels \
+            -f name="publish" \
+            -f description="Prepare release candidate and publish on merge" \
+            -f color="1D76DB" || echo "Label 'publish' may already exist"
+
+          echo "✅ Labels created"
+
+      - name: Configure branch protection
+        env:
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+        run: |
+          echo "Configuring branch protection for main..."
+
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/${{ github.repository }}/branches/main/protection \
+            -F "required_status_checks[strict]=true" \
+            -F "required_status_checks[contexts][]=PR Verify" \
+            -F "required_status_checks[contexts][]=E2E Tests" \
+            -F "required_status_checks[contexts][]=Release Candidate" \
+            -F "enforce_admins=true" \
+            -F "required_pull_request_reviews=null" \
+            -F "restrictions=null" \
+            -F "required_linear_history=true" \
+            -F "allow_force_pushes=false" \
+            -F "allow_deletions=false"
+
+          echo "✅ Branch protection configured"
+
+      - name: Summary
+        run: |
+          echo "## Repository Bootstrap Complete ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Settings Applied:" >> $GITHUB_STEP_SUMMARY
+          echo "- ❌ Merge commits disabled" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Squash merge enabled" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Rebase merge enabled" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Delete branch on merge enabled" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Labels Created:" >> $GITHUB_STEP_SUMMARY
+          echo "- 🏷️ verify (green)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🏷️ publish (blue)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Branch Protection (main):" >> $GITHUB_STEP_SUMMARY
+          echo "- Required status checks: PR Verify, E2E Tests, Release Candidate" >> $GITHUB_STEP_SUMMARY
+          echo "- Strict mode: branch must be up-to-date" >> $GITHUB_STEP_SUMMARY
+          echo "- Linear history required" >> $GITHUB_STEP_SUMMARY
+          echo "- Enforce for admins: yes" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,146 @@
+name: PR Verification
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    branches: [main]
+
+env:
+  PACKAGE_NAME: '@ypankratovich/ts-sum-inn'
+
+jobs:
+  pr-verify:
+    name: PR Verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/setup-node-npm@v1
+
+      - name: Check up-to-date with main
+        uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/check-up-to-date-with-main@v1
+
+      - name: Check version bumped
+        uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/check-version-bumped@v1
+        id: version
+
+      - name: Install dependencies
+        uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/npm-ci@v1
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Summary
+        run: |
+          echo "## PR Verification Passed ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Version: ${{ steps.version.outputs.current-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Base version: ${{ steps.version.outputs.base-version }}" >> $GITHUB_STEP_SUMMARY
+
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for verify label
+        id: check-label
+        run: |
+          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'verify') }}" == "true" ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Skipping E2E - no 'verify' label" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Checkout
+        if: steps.check-label.outputs.should_run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        if: steps.check-label.outputs.should_run == 'true'
+        uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/setup-node-npm@v1
+
+      - name: Install dependencies
+        if: steps.check-label.outputs.should_run == 'true'
+        uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/npm-ci@v1
+
+      - name: Run E2E tests
+        if: steps.check-label.outputs.should_run == 'true'
+        run: npm run test:e2e
+
+      - name: E2E Summary
+        if: steps.check-label.outputs.should_run == 'true'
+        run: |
+          echo "## E2E Tests Passed ✅" >> $GITHUB_STEP_SUMMARY
+
+  release-candidate:
+    name: Release Candidate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for publish label
+        id: check-label
+        run: |
+          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'publish') }}" == "true" ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Skipping Release Candidate - no 'publish' label" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Checkout
+        if: steps.check-label.outputs.should_run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        if: steps.check-label.outputs.should_run == 'true'
+        uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/setup-node-npm@v1
+
+      - name: Install dependencies
+        if: steps.check-label.outputs.should_run == 'true'
+        uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/npm-ci@v1
+
+      - name: Get version
+        if: steps.check-label.outputs.should_run == 'true'
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check version not in registry
+        if: steps.check-label.outputs.should_run == 'true'
+        uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/npm-version-exists@v1
+        with:
+          package-name: ${{ env.PACKAGE_NAME }}
+          version: ${{ steps.version.outputs.version }}
+
+      - name: Build dev release candidate
+        if: steps.check-label.outputs.should_run == 'true'
+        uses: yauhenipankratovich-web/gh-ci-inn/.github/actions/npm-pack-dev@v1
+        id: pack
+        with:
+          sha: ${{ github.event.pull_request.head.sha }}
+
+      - name: Upload artifact
+        if: steps.check-label.outputs.should_run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-${{ steps.pack.outputs.dev-version }}
+          path: ${{ steps.pack.outputs.tarball-path }}
+          retention-days: 7
+
+      - name: RC Summary
+        if: steps.check-label.outputs.should_run == 'true'
+        run: |
+          echo "## Release Candidate Created ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Dev version: ${{ steps.pack.outputs.dev-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Artifact: release-candidate-${{ steps.pack.outputs.dev-version }}" >> $GITHUB_STEP_SUMMARY
